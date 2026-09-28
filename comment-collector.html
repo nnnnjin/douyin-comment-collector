@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>抖音评论采集和私信工具</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #F7F4EF;
+      color: #1F2421;
+      padding: 40px;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      font-family: 'Georgia', serif;
+      font-size: 32px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      color: #1F2421;
+    }
+
+    .subtitle {
+      color: #5C635D;
+      font-size: 14px;
+      margin-bottom: 32px;
+      font-weight: 300;
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #1F2421;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    input[type="number"],
+    input[type="text"],
+    textarea {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #E7E1D7;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #FBF9F5;
+      color: #1F2421;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    input:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #C4612F;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #5C635D;
+      margin-top: 4px;
+      font-weight: 300;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .btn-primary {
+      background: #C4612F;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #A94E22;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(196, 97, 47, 0.3);
+    }
+
+    .btn-primary:disabled {
+      background: #E7E1D7;
+      color: #5C635D;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: #FBF9F5;
+      color: #1F2421;
+      border: 1px solid #E7E1D7;
+    }
+
+    .btn-secondary:hover {
+      background: #F2E3D6;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary:disabled {
+      background: #FBF9F5;
+      color: #5C635D;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status-panel {
+      margin-top: 32px;
+      padding: 20px;
+      background: #FBF9F5;
+      border-radius: 12px;
+      border: 1px solid #E7E1D7;
+    }
+
+    .status-text {
+      font-size: 14px;
+      color: #1F2421;
+      margin-bottom: 12px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .stat-item {
+      text-align: center;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #5C635D;
+      margin-bottom: 4px;
+      font-weight: 300;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 500;
+      color: #C4612F;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: #F2E3D6;
+      color: #C4612F;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .keyword-input {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .keyword-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: #F2E3D6;
+      color: #C4612F;
+      border-radius: 999px;
+      font-size: 13px;
+    }
+
+    .tag-remove {
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .form-grid .form-group {
+      margin-bottom: 8px;
+    }
+
+    .status-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      color: #5C635D;
+      font-size: 12px;
+    }
+
+    .progress-track {
+      height: 6px;
+      background: #E7E1D7;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 12px 0;
+    }
+
+    .progress-bar {
+      height: 100%;
+      width: 0;
+      background: #C4612F;
+      transition: width 0.25s ease;
+    }
+
+    .error-text { color: #A42820; }
+
+    .output-link {
+      margin-top: 14px;
+      padding: 8px 12px;
+      font-size: 13px;
+      flex: none;
+    }
+
+    @media (max-width: 700px) {
+      body { padding: 16px; }
+      .container { padding: 24px; }
+      .form-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="badge">评论采集工具</span>
+    <h1>抖音评论采集和私信</h1>
+    <p class="subtitle">搜索关键词，采集评论，智能筛选并发送私信</p>
+
+    <div class="form-group">
+      <label for="searchKeyword">搜索关键词</label>
+      <input type="text" id="searchKeyword" placeholder="例如：减肥、健身、美食">
+      <div class="hint">在抖音搜索这个关键词的相关视频</div>
+    </div>
+
+    <div class="form-group">
+      <label>评论筛选关键词</label>
+      <div class="keyword-input">
+        <input type="text" id="commentKeyword" placeholder="输入关键词后按回车添加">
+      </div>
+      <div class="keyword-tags" id="keywordTags"></div>
+      <div class="hint">只采集包含这些关键词的评论（例如：想要、怎么、求推荐）</div>
+    </div>
+
+    <div class="form-group">
+      <label for="messageTemplate">私信内容</label>
+      <textarea id="messageTemplate" placeholder="你好，看到你对XX感兴趣，我这里有一些经验可以分享。"></textarea>
+      <div class="hint">将发送给符合条件的用户</div>
+    </div>
+
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="maxVideos">采集视频数量</label>
+        <input type="number" id="maxVideos" value="5" min="1" max="50">
+      </div>
+      <div class="form-group">
+        <label for="maxComments">每个视频评论数</label>
+        <input type="number" id="maxComments" value="30" min="1" max="200">
+      </div>
+      <div class="form-group">
+        <label for="messageDelay">私信间隔（秒）</label>
+        <input type="number" id="messageDelay" value="10" min="5" max="120">
+      </div>
+      <div class="form-group">
+        <label for="maxMessages">本次最多私信</label>
+        <input type="number" id="maxMessages" value="0" min="0" max="500">
+        <div class="hint">0 表示不限制；首次实测请填 1</div>
+      </div>
+      <div class="form-group">
+        <label for="pageTimeout">页面超时（秒）</label>
+        <input type="number" id="pageTimeout" value="30" min="10" max="90">
+      </div>
+      <div class="form-group">
+        <label for="emptyScrollLimit">空滚动停止次数</label>
+        <input type="number" id="emptyScrollLimit" value="3" min="1" max="10">
+      </div>
+    </div>
+
+    <div class="button-group">
+      <button class="btn-primary" id="startBtn">开始采集</button>
+      <button class="btn-secondary" id="stopBtn" disabled>停止</button>
+    </div>
+
+    <div class="status-panel hidden" id="statusPanel">
+      <div class="status-text" id="statusText">等待启动...</div>
+      <div class="status-meta">
+        <span id="phaseText">阶段：—</span>
+        <span id="activityText">最近活动：—</span>
+      </div>
+      <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+      <div class="stats">
+        <div class="stat-item">
+          <div class="stat-label">采集评论</div>
+          <div class="stat-value" id="commentCount">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">匹配用户</div>
+          <div class="stat-value" id="matchedCount">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">发送私信</div>
+          <div class="stat-value" id="messageCount">0</div>
+        </div>
+      </div>
+      <button class="btn-secondary output-link" id="openOutputBtn">打开结果目录</button>
+    </div>
+  </div>
+
+  <script>
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusPanel = document.getElementById('statusPanel');
+    const statusText = document.getElementById('statusText');
+    const commentCountEl = document.getElementById('commentCount');
+    const matchedCountEl = document.getElementById('matchedCount');
+    const messageCountEl = document.getElementById('messageCount');
+    const keywordTagsEl = document.getElementById('keywordTags');
+    const commentKeywordInput = document.getElementById('commentKeyword');
+    const phaseText = document.getElementById('phaseText');
+    const activityText = document.getElementById('activityText');
+    const progressBar = document.getElementById('progressBar');
+    const openOutputBtn = document.getElementById('openOutputBtn');
+
+    let activeRunId = null;
+    let keywords = [];
+
+    // 添加关键词
+    commentKeywordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const keyword = commentKeywordInput.value.trim();
+        if (keyword && !keywords.includes(keyword)) {
+          keywords.push(keyword);
+          updateKeywordTags();
+          commentKeywordInput.value = '';
+        }
+      }
+    });
+
+    function updateKeywordTags() {
+      keywordTagsEl.replaceChildren(...keywords.map((keyword, index) => {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.append(document.createTextNode(keyword));
+        const remove = document.createElement('span');
+        remove.className = 'tag-remove';
+        remove.textContent = '×';
+        remove.setAttribute('role', 'button');
+        remove.setAttribute('aria-label', `删除关键词 ${keyword}`);
+        remove.addEventListener('click', () => {
+          keywords.splice(index, 1);
+          updateKeywordTags();
+        });
+        tag.append(remove);
+        return tag;
+      }));
+    }
+
+    function setRunning(running) {
+      startBtn.disabled = running;
+      stopBtn.disabled = !running;
+    }
+
+    startBtn.addEventListener('click', async () => {
+      const searchKeyword = document.getElementById('searchKeyword').value.trim();
+      const messageTemplate = document.getElementById('messageTemplate').value.trim();
+
+      if (!searchKeyword) {
+        alert('请输入搜索关键词');
+        return;
+      }
+
+      if (keywords.length === 0) {
+        alert('请至少添加一个评论筛选关键词');
+        return;
+      }
+
+      if (!messageTemplate) {
+        alert('请输入私信内容');
+        return;
+      }
+
+      const config = {
+        searchKeyword,
+        commentKeywords: keywords,
+        messageTemplate,
+        maxVideos: parseInt(document.getElementById('maxVideos').value),
+        maxCommentsPerVideo: parseInt(document.getElementById('maxComments').value),
+        delayBetweenMessages: parseInt(document.getElementById('messageDelay').value) * 1000,
+        maxMessages: parseInt(document.getElementById('maxMessages').value),
+        pageTimeout: parseInt(document.getElementById('pageTimeout').value) * 1000,
+        emptyScrollLimit: parseInt(document.getElementById('emptyScrollLimit').value),
+        maxConsecutiveMessageFailures: 3,
+        headless: false
+      };
+
+      statusPanel.classList.remove('hidden');
+      statusText.textContent = '正在启动程序...';
+      statusText.classList.remove('error-text');
+      setRunning(true);
+      try {
+        const result = await window.collectorAPI.start(config);
+        activeRunId = result.runId;
+      } catch (error) {
+        activeRunId = null;
+        setRunning(false);
+        statusText.textContent = error.message || '启动失败';
+        statusText.classList.add('error-text');
+      }
+    });
+
+    stopBtn.addEventListener('click', async () => {
+      stopBtn.disabled = true;
+      statusText.textContent = '正在停止...';
+      await window.collectorAPI.stop(activeRunId);
+    });
+
+    openOutputBtn.addEventListener('click', () => window.collectorAPI.openOutput());
+
+    window.collectorAPI.onUpdate(update => {
+      if (activeRunId && update.runId !== activeRunId) return;
+      if (!activeRunId) activeRunId = update.runId;
+      const counters = update.counters || {};
+      commentCountEl.textContent = counters.comments || 0;
+      matchedCountEl.textContent = counters.matched || 0;
+      messageCountEl.textContent = counters.sent || 0;
+      statusText.textContent = update.message || '任务运行中';
+      phaseText.textContent = `阶段：${update.phase || '—'}`;
+      activityText.textContent = `最近活动：${update.lastActivityAt ? new Date(update.lastActivityAt).toLocaleTimeString() : '—'}`;
+      const current = Number(update.progress?.current || 0);
+      const total = Number(update.progress?.total || 0);
+      progressBar.style.width = total > 0 ? `${Math.min(100, current / total * 100)}%` : '0%';
+      const terminal = ['completed', 'completed_with_warnings', 'failed', 'aborted'].includes(update.status);
+      statusText.classList.toggle('error-text', update.status === 'failed');
+      if (terminal) {
+        activeRunId = null;
+        setRunning(false);
+      }
+    });
+
+    window.collectorAPI.getState().then(state => {
+      if (state.running) {
+        activeRunId = state.runId;
+        statusPanel.classList.remove('hidden');
+        setRunning(true);
+      }
+    });
+  </script>
+</body>
+</html>

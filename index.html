@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>抖音自动刷视频</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #F7F4EF;
+      color: #1F2421;
+      padding: 40px;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: #FFFFFF;
+      border-radius: 16px;
+      padding: 40px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+    }
+
+    h1 {
+      font-family: 'Georgia', serif;
+      font-size: 32px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      color: #1F2421;
+    }
+
+    .subtitle {
+      color: #5C635D;
+      font-size: 14px;
+      margin-bottom: 32px;
+      font-weight: 300;
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      color: #1F2421;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    input[type="number"],
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 1px solid #E7E1D7;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #FBF9F5;
+      color: #1F2421;
+      transition: border-color 0.2s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: #C4612F;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #5C635D;
+      margin-top: 4px;
+      font-weight: 300;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 32px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px 24px;
+      border: none;
+      border-radius: 999px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    button:active {
+      transform: translateY(1px);
+    }
+
+    .btn-primary {
+      background: #C4612F;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #A94E22;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(196, 97, 47, 0.3);
+    }
+
+    .btn-primary:disabled {
+      background: #E7E1D7;
+      color: #5C635D;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-secondary {
+      background: #FBF9F5;
+      color: #1F2421;
+      border: 1px solid #E7E1D7;
+    }
+
+    .btn-secondary:hover {
+      background: #F2E3D6;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary:disabled {
+      background: #FBF9F5;
+      color: #5C635D;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .status-panel {
+      margin-top: 32px;
+      padding: 20px;
+      background: #FBF9F5;
+      border-radius: 12px;
+      border: 1px solid #E7E1D7;
+    }
+
+    .status-text {
+      font-size: 14px;
+      color: #1F2421;
+      margin-bottom: 12px;
+    }
+
+    .stats {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+    }
+
+    .stat-item {
+      flex: 1;
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: #5C635D;
+      margin-bottom: 4px;
+      font-weight: 300;
+    }
+
+    .stat-value {
+      font-size: 24px;
+      font-weight: 500;
+      color: #C4612F;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: #F2E3D6;
+      color: #C4612F;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 16px;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <span class="badge">自动化工具</span>
+    <h1>抖音自动刷视频</h1>
+    <p class="subtitle">智能控制视频浏览和点赞频率</p>
+
+    <div class="form-group">
+      <label for="videoInterval">视频切换间隔（秒）</label>
+      <input type="number" id="videoInterval" value="15" min="5" max="60">
+      <div class="hint">推荐 10-30 秒，间隔太短可能被检测</div>
+    </div>
+
+    <div class="form-group">
+      <label for="likeInterval">点赞最小间隔（秒）</label>
+      <input type="number" id="likeInterval" value="30" min="10" max="120">
+      <div class="hint">两次点赞之间的最短时间，推荐 30-60 秒</div>
+    </div>
+
+    <div class="form-group">
+      <label for="likeChance">点赞概率（%）</label>
+      <input type="number" id="likeChance" value="30" min="0" max="100">
+      <div class="hint">每个视频被点赞的概率，推荐 20-40%</div>
+    </div>
+
+    <div class="form-group">
+      <label for="maxVideos">最多刷视频数量</label>
+      <input type="number" id="maxVideos" value="0" min="0" max="500">
+      <div class="hint">0 表示无限制，一直运行直到手动停止</div>
+    </div>
+
+    <div class="button-group">
+      <button class="btn-primary" id="startBtn">启动程序</button>
+      <button class="btn-secondary" id="stopBtn" disabled>停止</button>
+    </div>
+
+    <div class="status-panel hidden" id="statusPanel">
+      <div class="status-text" id="statusText">等待启动...</div>
+      <div class="stats">
+        <div class="stat-item">
+          <div class="stat-label">已观看视频</div>
+          <div class="stat-value" id="videoCount">0</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">点赞次数</div>
+          <div class="stat-value" id="likeCount">0</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusPanel = document.getElementById('statusPanel');
+    const statusText = document.getElementById('statusText');
+    const videoCountEl = document.getElementById('videoCount');
+    const likeCountEl = document.getElementById('likeCount');
+
+    let isRunning = false;
+
+    startBtn.addEventListener('click', () => {
+      const config = {
+        videoInterval: parseInt(document.getElementById('videoInterval').value) * 1000,
+        likeInterval: parseInt(document.getElementById('likeInterval').value) * 1000,
+        likeChance: parseInt(document.getElementById('likeChance').value) / 100,
+        maxVideos: parseInt(document.getElementById('maxVideos').value),
+        headless: false
+      };
+
+      ipcRenderer.send('start-player', config);
+      isRunning = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+      statusPanel.classList.remove('hidden');
+      statusText.textContent = '正在启动程序...';
+    });
+
+    stopBtn.addEventListener('click', () => {
+      ipcRenderer.send('stop-player');
+      stopBtn.disabled = true;
+    });
+
+    ipcRenderer.on('player-status', (event, data) => {
+      statusText.textContent = data.message;
+
+      if (data.status === 'stopped' || data.status === 'error') {
+        isRunning = false;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      }
+    });
+
+    ipcRenderer.on('player-stats', (event, stats) => {
+      videoCountEl.textContent = stats.videoCount;
+      likeCountEl.textContent = stats.likeCount;
+      statusText.textContent = '程序运行中...';
+    });
+  </script>
+</body>
+</html>
