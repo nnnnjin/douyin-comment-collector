@@ -47,11 +47,7 @@ ipcMain.handle('collector:start', async (_event, config) => {
     try {
       await task.run();
     } catch (error) {
-      sendUpdate({
-        runId, phase: task.phase, status: 'failed', progress: null,
-        counters: task.counters(), message: error.message,
-        errorCode: error.code || 'UNEXPECTED_ERROR', lastActivityAt: new Date().toISOString()
-      });
+      console.error(`[${runId}] 采集任务失败:`, error);
     } finally {
       if (activeTask === task) activeTask = null;
     }

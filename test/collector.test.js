@@ -150,3 +150,22 @@ test('unexpected browser disconnect is reported as failure, not user cancellatio
   });
   fs.rmSync(outputDir, { recursive: true, force: true });
 });
+
+test('stale Chrome profile locks are cleaned while active locks are preserved', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'douyin-collector-lock-'));
+  const outputDir = path.join(root, 'output');
+  const profileDir = path.join(root, 'profile');
+  fs.mkdirSync(profileDir);
+  const collector = new Collector({ ...baseConfig, outputDir, profileDir });
+  const lockPath = path.join(profileDir, 'SingletonLock');
+  fs.symlinkSync('host-99999999', lockPath);
+  collector.ensureProfileAvailable();
+  assert.equal(fs.existsSync(lockPath), false);
+
+  fs.symlinkSync(`host-${process.pid}`, lockPath);
+  assert.throws(() => collector.ensureProfileAvailable(), error => {
+    assert.equal(error.code, 'PROFILE_IN_USE');
+    return true;
+  });
+  fs.rmSync(root, { recursive: true, force: true });
+});

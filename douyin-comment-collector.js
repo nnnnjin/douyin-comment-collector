@@ -252,7 +252,11 @@ class DouyinCommentCollector {
   ensureProfileAvailable() {
     fs.mkdirSync(this.config.profileDir, { recursive: true });
     const lockPath = path.join(this.config.profileDir, 'SingletonLock');
-    if (!fs.existsSync(lockPath)) return;
+    try { fs.lstatSync(lockPath); }
+    catch (error) {
+      if (error.code === 'ENOENT') return;
+      throw error;
+    }
     let active = false;
     try {
       const match = fs.readlinkSync(lockPath).match(/-(\d+)$/);
