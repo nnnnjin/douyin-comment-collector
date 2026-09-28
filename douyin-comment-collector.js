@@ -13,6 +13,7 @@ const DEFAULT_CONFIG = Object.freeze({
   searchKeyword: '', commentKeywords: [], messageTemplate: '', maxVideos: 10,
   maxCommentsPerVideo: 50, delayBetweenMessages: 10000, pageTimeout: 30000,
   emptyScrollLimit: 3, maxConsecutiveMessageFailures: 3, maxMessages: 0,
+  expectedAccountId: '', accountNickname: '', profileId: '', profileLabel: '',
   headless: false, outputDir: path.join(__dirname, 'output'), profileDir: path.join(__dirname, 'browser-data')
 });
 
@@ -50,6 +51,10 @@ function validateConfig(input = {}) {
     maxConsecutiveMessageFailures: clampInteger(input.maxConsecutiveMessageFailures, DEFAULT_CONFIG.maxConsecutiveMessageFailures, 1, 10),
     maxMessages: clampInteger(input.maxMessages, DEFAULT_CONFIG.maxMessages, 0, 500),
     headless: Boolean(input.headless),
+    expectedAccountId: String(input.expectedAccountId || '').trim(),
+    accountNickname: String(input.accountNickname || '').trim(),
+    profileId: String(input.profileId || '').trim(),
+    profileLabel: String(input.profileLabel || '').trim(),
     outputDir: path.resolve(input.outputDir || DEFAULT_CONFIG.outputDir),
     profileDir: path.resolve(input.profileDir || DEFAULT_CONFIG.profileDir)
   };
@@ -160,6 +165,29 @@ function safeUrl(rawUrl) {
   }
 }
 
+function ensureProfileAvailable(profileDir) {
+  fs.mkdirSync(profileDir, { recursive: true });
+  const lockPath = path.join(profileDir, 'SingletonLock');
+  try { fs.lstatSync(lockPath); }
+  catch (error) {
+    if (error.code === 'ENOENT') return;
+    throw error;
+  }
+  let active = false;
+  try {
+    const match = fs.readlinkSync(lockPath).match(/-(\d+)$/);
+    if (match) {
+      try { process.kill(Number(match[1]), 0); active = true; }
+      catch (error) { active = error.code === 'EPERM'; }
+    }
+  } catch { active = false; }
+  if (active) throw new CollectorError('PROFILE_IN_USE', '浏览器资料目录正在被另一个采集任务使用，请先关闭旧窗口');
+  for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort']) {
+    try { fs.unlinkSync(path.join(profileDir, name)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+}
+
 class DouyinCommentCollector {
   constructor(config = {}, options = {}) {
     this.config = validateConfig(config);
@@ -250,26 +278,7 @@ class DouyinCommentCollector {
   }
 
   ensureProfileAvailable() {
-    fs.mkdirSync(this.config.profileDir, { recursive: true });
-    const lockPath = path.join(this.config.profileDir, 'SingletonLock');
-    try { fs.lstatSync(lockPath); }
-    catch (error) {
-      if (error.code === 'ENOENT') return;
-      throw error;
-    }
-    let active = false;
-    try {
-      const match = fs.readlinkSync(lockPath).match(/-(\d+)$/);
-      if (match) {
-        try { process.kill(Number(match[1]), 0); active = true; }
-        catch (error) { active = error.code === 'EPERM'; }
-      }
-    } catch { active = false; }
-    if (active) throw new CollectorError('PROFILE_IN_USE', '浏览器资料目录正在被另一个采集任务使用，请先关闭旧窗口');
-    for (const name of ['SingletonLock', 'SingletonCookie', 'SingletonSocket', 'DevToolsActivePort']) {
-      try { fs.unlinkSync(path.join(this.config.profileDir, name)); }
-      catch (error) { if (error.code !== 'ENOENT') throw error; }
-    }
+    ensureProfileAvailable(this.config.profileDir);
   }
 
   async init() {
@@ -362,6 +371,37 @@ class DouyinCommentCollector {
       await this.sleep(2000);
     }
     throw new CollectorError('LOGIN_TIMEOUT', '等待登录超时，请重新启动任务');
+  }
+
+  async verifyBoundAccount() {
+    if (!this.config.expectedAccountId) {
+      throw new CollectorError('PROFILE_NOT_BOUND', '当前浏览器尚未绑定抖音账号，请先在主界面准备浏览器');
+    }
+    this.emit('running', `正在核对浏览器账号：${this.config.profileLabel || '已选浏览器'}`);
+    await this.navigate('https://www.douyin.com/user/self', '核对登录账号');
+    await this.sleep(1000);
+    let currentAccountId = '';
+    try {
+      const match = new URL(this.page.url()).pathname.match(/^\/user\/([^/]+)/);
+      if (match && match[1] !== 'self') currentAccountId = decodeURIComponent(match[1]);
+    } catch { /* URL remains unrecognized. */ }
+    if (!currentAccountId) {
+      currentAccountId = await this.page.evaluate(() => {
+        const link = document.querySelector(
+          '[data-e2e="user-info"] a[href*="/user/"], [data-e2e="user-avatar"] a[href*="/user/"], header a[href*="/user/"]'
+        );
+        const match = link?.href?.match(/\/user\/([^/?#]+)/);
+        return match ? decodeURIComponent(match[1]) : '';
+      }).catch(() => '');
+    }
+    if (!currentAccountId) throw new CollectorError('ACCOUNT_ID_MISSING', '无法识别当前登录账号，请重新准备该浏览器');
+    if (currentAccountId !== this.config.expectedAccountId) {
+      throw new CollectorError(
+        'ACCOUNT_MISMATCH',
+        `浏览器账号不匹配：请选择或登录已绑定的“${this.config.accountNickname || this.config.profileLabel || '原账号'}”`
+      );
+    }
+    this.emit('running', `账号核对通过：${this.config.accountNickname || this.config.profileLabel}`);
   }
 
   async searchKeyword() {
@@ -571,6 +611,7 @@ class DouyinCommentCollector {
     try {
       await this.init();
       await this.openDouyinAndLogin();
+      await this.verifyBoundAccount();
       await this.searchKeyword();
       const videoLinks = await this.getVideoLinks();
       this.setPhase(PHASES.COLLECT, `开始采集 ${videoLinks.length} 个视频`);
@@ -672,3 +713,4 @@ module.exports.dedupeComments = dedupeComments;
 module.exports.filterCommentsByKeywords = filterCommentsByKeywords;
 module.exports.uniqueUsers = uniqueUsers;
 module.exports.atomicWriteJson = atomicWriteJson;
+module.exports.ensureProfileAvailable = ensureProfileAvailable;

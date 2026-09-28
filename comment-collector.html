@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'nonce-collector-ui'; style-src 'self' 'unsafe-inline'; img-src 'self' data:">
   <title>抖音评论采集和私信工具</title>
   <style>
     :root {
@@ -61,6 +62,7 @@
 
     input[type="number"],
     input[type="text"],
+    select,
     textarea {
       width: 100%;
       padding: 12px 16px;
@@ -79,6 +81,7 @@
     }
 
     input:focus,
+    select:focus,
     textarea:focus {
       outline: none;
       border-color: #C4612F;
@@ -274,6 +277,33 @@
       flex: none;
     }
 
+    .account-panel {
+      margin-bottom: 28px;
+      padding: 18px;
+      border: 1px solid #E7E1D7;
+      border-radius: 12px;
+      background: #FBF9F5;
+    }
+
+    .account-actions {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .account-actions button {
+      flex: none;
+      padding: 10px 14px;
+      font-size: 13px;
+    }
+
+    .account-status {
+      margin-top: 10px;
+      font-size: 13px;
+      color: #5C635D;
+    }
+
     @media (max-width: 700px) {
       body { padding: 16px; }
       .container { padding: 24px; }
@@ -286,6 +316,21 @@
     <span class="badge">评论采集工具</span>
     <h1>抖音评论采集和私信</h1>
     <p class="subtitle">搜索关键词，采集评论，智能筛选并发送私信</p>
+
+    <div class="account-panel">
+      <label for="browserProfile">截流浏览器与抖音账号</label>
+      <select id="browserProfile">
+        <option value="">请先准备浏览器账号</option>
+      </select>
+      <div class="hint">一个浏览器配置只能绑定一个抖音账号，采集前会再次核对。</div>
+      <div class="account-actions">
+        <input type="text" id="newBrowserLabel" placeholder="新浏览器名称，例如：账号A浏览器">
+        <button class="btn-secondary" id="newBrowserBtn">准备新浏览器</button>
+        <button class="btn-secondary" id="checkBrowserBtn">检查所选</button>
+      </div>
+      <div class="account-status" id="accountStatus">请先选择已有浏览器，或准备一个新浏览器并登录对应账号。</div>
+      <button class="btn-secondary output-link hidden" id="cancelPrepareBtn">取消准备</button>
+    </div>
 
     <div class="form-group">
       <label for="searchKeyword">搜索关键词</label>
@@ -366,7 +411,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="collector-ui">
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const statusPanel = document.getElementById('statusPanel');
@@ -380,9 +425,82 @@
     const activityText = document.getElementById('activityText');
     const progressBar = document.getElementById('progressBar');
     const openOutputBtn = document.getElementById('openOutputBtn');
+    const browserProfileEl = document.getElementById('browserProfile');
+    const newBrowserLabelEl = document.getElementById('newBrowserLabel');
+    const newBrowserBtn = document.getElementById('newBrowserBtn');
+    const checkBrowserBtn = document.getElementById('checkBrowserBtn');
+    const cancelPrepareBtn = document.getElementById('cancelPrepareBtn');
+    const accountStatus = document.getElementById('accountStatus');
 
     let activeRunId = null;
     let keywords = [];
+    let accountProfiles = [];
+    let preparingAccount = false;
+
+    async function loadAccounts(preferredId = '') {
+      accountProfiles = await window.collectorAPI.listAccounts();
+      const previous = preferredId || browserProfileEl.value;
+      browserProfileEl.replaceChildren(new Option('请选择已准备的浏览器', ''));
+      for (const profile of accountProfiles) {
+        const suffix = profile.ready ? `${profile.nickname}（已就绪）` : '待登录确认';
+        browserProfileEl.add(new Option(`${profile.label} — ${suffix}`, profile.id));
+      }
+      if (accountProfiles.some(profile => profile.id === previous)) browserProfileEl.value = previous;
+      updateAccountSelection();
+    }
+
+    function selectedProfile() {
+      return accountProfiles.find(profile => profile.id === browserProfileEl.value) || null;
+    }
+
+    function updateAccountSelection() {
+      const profile = selectedProfile();
+      if (!profile) accountStatus.textContent = '请先选择已有浏览器，或准备一个新浏览器并登录对应账号。';
+      else if (profile.ready) accountStatus.textContent = `已选择：${profile.label} ↔ ${profile.nickname}`;
+      else accountStatus.textContent = `${profile.label} 尚未确认登录账号，请点击“检查所选”。`;
+      checkBrowserBtn.disabled = preparingAccount || !profile;
+    }
+
+    function setPreparing(preparing) {
+      preparingAccount = preparing;
+      newBrowserBtn.disabled = preparing;
+      checkBrowserBtn.disabled = preparing || !selectedProfile();
+      cancelPrepareBtn.classList.toggle('hidden', !preparing);
+      startBtn.disabled = preparing || Boolean(activeRunId);
+    }
+
+    async function prepareAccount(options) {
+      setPreparing(true);
+      accountStatus.textContent = '正在打开独立浏览器，请在其中登录对应的抖音账号...';
+      try {
+        const profile = await window.collectorAPI.prepareAccount(options);
+        await loadAccounts(profile.id);
+        newBrowserLabelEl.value = '';
+      } catch (error) {
+        accountStatus.textContent = error.message || '浏览器账号准备失败';
+      } finally {
+        setPreparing(false);
+      }
+    }
+
+    browserProfileEl.addEventListener('change', updateAccountSelection);
+    newBrowserBtn.addEventListener('click', () => {
+      const label = newBrowserLabelEl.value.trim();
+      if (!label) return alert('请输入新浏览器名称');
+      prepareAccount({ label });
+    });
+    checkBrowserBtn.addEventListener('click', () => {
+      const profile = selectedProfile();
+      if (!profile) return alert('请先选择浏览器');
+      prepareAccount({ profileId: profile.id });
+    });
+    cancelPrepareBtn.addEventListener('click', () => window.collectorAPI.cancelAccountPreparation());
+
+    window.collectorAPI.onAccountUpdate(update => {
+      accountStatus.textContent = update.message || '正在准备浏览器账号';
+      accountStatus.classList.toggle('error-text', ['failed', 'account_mismatch'].includes(update.status));
+      if (update.status === 'ready') loadAccounts(update.profile?.id || update.profileId);
+    });
 
     // 添加关键词
     commentKeywordInput.addEventListener('keydown', (e) => {
@@ -417,13 +535,19 @@
     }
 
     function setRunning(running) {
-      startBtn.disabled = running;
+      startBtn.disabled = running || preparingAccount;
       stopBtn.disabled = !running;
     }
 
     startBtn.addEventListener('click', async () => {
       const searchKeyword = document.getElementById('searchKeyword').value.trim();
       const messageTemplate = document.getElementById('messageTemplate').value.trim();
+      const profile = selectedProfile();
+
+      if (!profile?.ready) {
+        alert('请先选择并准备一个已绑定抖音账号的浏览器');
+        return;
+      }
 
       if (!searchKeyword) {
         alert('请输入搜索关键词');
@@ -441,6 +565,7 @@
       }
 
       const config = {
+        profileId: profile.id,
         searchKeyword,
         commentKeywords: keywords,
         messageTemplate,
@@ -505,6 +630,8 @@
         setRunning(true);
       }
     });
+
+    loadAccounts();
   </script>
 </body>
 </html>

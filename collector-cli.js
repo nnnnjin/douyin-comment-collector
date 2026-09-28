@@ -1,6 +1,8 @@
 'use strict';
 
 const DouyinCommentCollector = require('./douyin-comment-collector');
+const { AccountProfileStore } = require('./account-profile-manager');
+const path = require('path');
 
 let config;
 try {
@@ -11,7 +13,23 @@ try {
 }
 
 if (config) {
-  const collector = new DouyinCommentCollector(config, {
+  const store = new AccountProfileStore(__dirname);
+  store.ensureLegacyProfile(path.join(__dirname, 'browser-data'));
+  const profile = store.get(String(config.profileId || ''));
+  if (!profile?.accountId) {
+    console.error('config.js 中的 profileId 尚未绑定账号。请先运行 npm start，在界面准备浏览器账号。');
+    process.exitCode = 1;
+    return;
+  }
+  const collector = new DouyinCommentCollector({
+    ...config,
+    profileId: profile.id,
+    profileLabel: profile.label,
+    expectedAccountId: profile.accountId,
+    accountNickname: profile.nickname,
+    profileDir: profile.profileDir,
+    outputDir: path.join(__dirname, 'output')
+  }, {
     onProgress(update) {
       const counters = update.counters || {};
       console.log(`[${update.phase}] ${update.message} | 视频 ${counters.videos || 0} 评论 ${counters.comments || 0} 匹配 ${counters.matched || 0} 已发 ${counters.sent || 0}`);

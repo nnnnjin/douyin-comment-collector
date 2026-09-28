@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const Collector = require('../douyin-comment-collector');
+const { AccountProfileStore, accountIdFromUrl } = require('../account-profile-manager');
 const {
   CollectorError, validateConfig, extractCommentsFromPayload, dedupeComments,
   filterCommentsByKeywords, uniqueUsers, atomicWriteJson
@@ -105,6 +106,7 @@ test('run stops automatic messages after consecutive failures', async () => {
   class SimulatedCollector extends Collector {
     async init() {}
     async openDouyinAndLogin() {}
+    async verifyBoundAccount() {}
     async searchKeyword() {}
     async getVideoLinks() { return ['https://www.douyin.com/video/fixture']; }
     async collectCommentsFromVideo() {
@@ -168,4 +170,32 @@ test('stale Chrome profile locks are cleaned while active locks are preserved', 
     return true;
   });
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('browser profiles enforce one browser to one Douyin account', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'douyin-account-profiles-'));
+  try {
+    const store = new AccountProfileStore(root);
+    const first = store.createDraft('账号A浏览器');
+    store.bind({ ...first, profileId: first.id, accountId: 'sec-a', nickname: '账号A' });
+    assert.equal(store.list()[0].ready, true);
+
+    const second = store.createDraft('账号B浏览器');
+    assert.throws(
+      () => store.bind({ ...second, profileId: second.id, accountId: 'sec-a', nickname: '账号A' }),
+      error => error.code === 'ACCOUNT_ALREADY_BOUND'
+    );
+    assert.throws(
+      () => store.bind({ ...first, profileId: first.id, accountId: 'sec-b', nickname: '账号B' }),
+      error => error.code === 'ACCOUNT_MISMATCH'
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('account identity is derived only from a concrete user URL', () => {
+  assert.equal(accountIdFromUrl('https://www.douyin.com/user/sec-123?from_tab_name=main'), 'sec-123');
+  assert.equal(accountIdFromUrl('https://www.douyin.com/user/self'), '');
+  assert.equal(accountIdFromUrl('not-a-url'), '');
 });

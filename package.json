@@ -15,7 +15,7 @@
     "debug": "node debug-comments.js",
     "test": "node --test test/*.test.js",
     "test:browser": "node --test integration/*.test.js",
-    "check": "node --check douyin-comment-collector.js && node --check main-collector.js && node --check preload.js && node --check collector-cli.js && npm test",
+    "check": "node --check douyin-comment-collector.js && node --check account-profile-manager.js && node --check main-collector.js && node --check preload.js && node --check collector-cli.js && npm test",
     "browser:install": "puppeteer browsers install chrome",
     "build": "electron-builder --mac",
     "build-dmg": "electron-builder --mac --arm64 --x64"
@@ -53,6 +53,7 @@
     },
     "files": [
       "main-collector.js",
+      "account-profile-manager.js",
       "preload.js",
       "comment-collector.html",
       "douyin-auto.js",
