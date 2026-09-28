@@ -165,6 +165,17 @@ function safeUrl(rawUrl) {
   }
 }
 
+function accountFingerprintFromCookies(cookies = []) {
+  const preferredNames = ['uid_tt', 'uid_tt_ss', 'passport_assist_user', 'sessionid', 'sessionid_ss'];
+  for (const name of preferredNames) {
+    const cookie = cookies.find(item => item.name === name && item.value);
+    if (cookie) {
+      return `cookie:${crypto.createHash('sha256').update(`${name}:${cookie.value}`).digest('hex')}`;
+    }
+  }
+  return '';
+}
+
 function ensureProfileAvailable(profileDir) {
   fs.mkdirSync(profileDir, { recursive: true });
   const lockPath = path.join(profileDir, 'SingletonLock');
@@ -336,7 +347,7 @@ class DouyinCommentCollector {
   async detectPageState() {
     if (!this.page || this.page.isClosed()) return 'closed';
     return this.page.evaluate(() => {
-      const text = (document.body?.innerText || '').slice(0, 20000);
+      const text = `${document.title || ''}\n${(document.body?.innerText || '').slice(0, 20000)}`;
       if (/验证码|访问频繁|操作频繁|安全验证|滑块验证|账号存在风险/.test(text)) return 'blocked';
       if (/扫码登录|密码登录|验证码登录/.test(text)) return 'login_required';
       return 'ready';
@@ -347,15 +358,7 @@ class DouyinCommentCollector {
     if (!this.page || this.page.isClosed()) return false;
     const cookies = await this.page.cookies().catch(() => []);
     const hasSessionCookie = cookies.some(cookie => /^(sessionid|sessionid_ss|sid_guard)$/.test(cookie.name) && cookie.value);
-    const evidence = await this.page.evaluate(() => {
-      const loginPrompt = Array.from(document.querySelectorAll('button, [role="button"], a'))
-        .some(element => /^(登录|扫码登录)$/.test((element.textContent || '').trim()) && element.offsetParent !== null);
-      const accountElement = document.querySelector(
-        '[data-e2e="user-info"], [data-e2e="user-avatar"], a[href*="/user/self"], a[href*="/user/"] img'
-      );
-      return { loginPrompt, hasAccountElement: Boolean(accountElement) };
-    }).catch(() => ({ loginPrompt: true, hasAccountElement: false }));
-    return hasSessionCookie && !evidence.loginPrompt && evidence.hasAccountElement;
+    return hasSessionCookie && Boolean(accountFingerprintFromCookies(cookies));
   }
 
   async openDouyinAndLogin() {
@@ -378,6 +381,19 @@ class DouyinCommentCollector {
       throw new CollectorError('PROFILE_NOT_BOUND', '当前浏览器尚未绑定抖音账号，请先在主界面准备浏览器');
     }
     this.emit('running', `正在核对浏览器账号：${this.config.profileLabel || '已选浏览器'}`);
+    const cookies = await this.page.cookies().catch(() => []);
+    const cookieFingerprint = accountFingerprintFromCookies(cookies);
+    if (this.config.expectedAccountId.startsWith('cookie:')) {
+      if (!cookieFingerprint) throw new CollectorError('LOGIN_REQUIRED', '当前浏览器没有有效登录态，请重新准备该浏览器');
+      if (cookieFingerprint !== this.config.expectedAccountId) {
+        throw new CollectorError(
+          'ACCOUNT_MISMATCH',
+          `浏览器账号不匹配：请选择或登录已绑定的“${this.config.accountNickname || this.config.profileLabel || '原账号'}”`
+        );
+      }
+      this.emit('running', `账号核对通过：${this.config.accountNickname || this.config.profileLabel}`);
+      return;
+    }
     await this.navigate('https://www.douyin.com/user/self', '核对登录账号');
     await this.sleep(1000);
     let currentAccountId = '';
@@ -714,3 +730,4 @@ module.exports.filterCommentsByKeywords = filterCommentsByKeywords;
 module.exports.uniqueUsers = uniqueUsers;
 module.exports.atomicWriteJson = atomicWriteJson;
 module.exports.ensureProfileAvailable = ensureProfileAvailable;
+module.exports.accountFingerprintFromCookies = accountFingerprintFromCookies;

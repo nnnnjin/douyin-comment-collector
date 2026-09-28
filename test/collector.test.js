@@ -9,7 +9,7 @@ const Collector = require('../douyin-comment-collector');
 const { AccountProfileStore, accountIdFromUrl } = require('../account-profile-manager');
 const {
   CollectorError, validateConfig, extractCommentsFromPayload, dedupeComments,
-  filterCommentsByKeywords, uniqueUsers, atomicWriteJson
+  filterCommentsByKeywords, uniqueUsers, atomicWriteJson, accountFingerprintFromCookies
 } = Collector;
 
 const baseConfig = {
@@ -198,4 +198,17 @@ test('account identity is derived only from a concrete user URL', () => {
   assert.equal(accountIdFromUrl('https://www.douyin.com/user/sec-123?from_tab_name=main'), 'sec-123');
   assert.equal(accountIdFromUrl('https://www.douyin.com/user/self'), '');
   assert.equal(accountIdFromUrl('not-a-url'), '');
+});
+
+test('login account fingerprint is stable and never exposes the cookie value', () => {
+  const cookies = [
+    { name: 'sessionid', value: 'session-secret' },
+    { name: 'uid_tt', value: 'account-secret' }
+  ];
+  const first = accountFingerprintFromCookies(cookies);
+  const second = accountFingerprintFromCookies([...cookies].reverse());
+  assert.equal(first, second);
+  assert.match(first, /^cookie:[a-f0-9]{64}$/);
+  assert.equal(first.includes('account-secret'), false);
+  assert.notEqual(first, accountFingerprintFromCookies([{ name: 'uid_tt', value: 'other-account' }]));
 });

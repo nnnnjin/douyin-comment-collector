@@ -3,7 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { atomicWriteJson, CollectorError, ensureProfileAvailable } = require('./douyin-comment-collector');
+const {
+  atomicWriteJson, CollectorError, ensureProfileAvailable, accountFingerprintFromCookies
+} = require('./douyin-comment-collector');
 
 function cleanLabel(value) {
   return String(value || '').trim().slice(0, 40);
@@ -23,11 +25,8 @@ async function detectLoggedInAccount(page) {
   const cookies = await page.cookies().catch(() => []);
   const hasSession = cookies.some(cookie => /^(sessionid|sessionid_ss|sid_guard)$/.test(cookie.name) && cookie.value);
   if (!hasSession) return null;
-
-  const visibleLogin = await page.evaluate(() => Array.from(document.querySelectorAll('button, [role="button"], a'))
-    .some(element => element.offsetParent !== null && /^(登录|扫码登录)$/.test((element.textContent || '').trim())))
-    .catch(() => true);
-  if (visibleLogin) return null;
+  const accountId = accountFingerprintFromCookies(cookies);
+  if (!accountId) return null;
 
   const fromPage = await page.evaluate(() => {
     const selectors = [
@@ -50,20 +49,9 @@ async function detectLoggedInAccount(page) {
     return null;
   }).catch(() => null);
 
-  let accountId = accountIdFromUrl(fromPage?.href || '');
   let nickname = fromPage?.nickname || '';
-  if (!accountId) {
-    await page.goto('https://www.douyin.com/user/self', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    accountId = accountIdFromUrl(page.url());
-    if (!nickname) {
-      nickname = await page.evaluate(() => {
-        const candidate = document.querySelector('[data-e2e="user-title"], h1, [class*="nickname"]');
-        return (candidate?.textContent || document.title.split('-')[0] || '').trim();
-      }).catch(() => '');
-    }
-  }
-  return accountId ? { accountId, nickname: nickname || `账号 ${accountId.slice(-6)}` } : null;
+  if (!nickname) nickname = `已登录账号 ${accountId.slice(-6)}`;
+  return { accountId, nickname };
 }
 
 class AccountProfileStore {
