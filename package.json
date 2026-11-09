@@ -26,8 +26,8 @@
     "puppeteer",
     "comment-collector"
   ],
-  "author": "",
-  "license": "MIT",
+  "author": "wu",
+  "license": "SEE LICENSE IN LICENSE",
   "dependencies": {
     "puppeteer": "25.12.0"
   },

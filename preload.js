@@ -1,3 +1,5 @@
+// Copyright (c) 2026 wu. All rights reserved.
+// Commercial use requires prior written permission from the copyright holder.
 'use strict';
 
 const { contextBridge, ipcRenderer } = require('electron');

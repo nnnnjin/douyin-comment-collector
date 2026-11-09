@@ -1,3 +1,5 @@
+// Copyright (c) 2026 wu. All rights reserved.
+// Commercial use requires prior written permission from the copyright holder.
 /**
  * 快速启动脚本
  * 使用自定义配置运行抖音自动刷视频程序

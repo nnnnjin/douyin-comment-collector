@@ -1,3 +1,5 @@
+// Copyright (c) 2026 wu. All rights reserved.
+// Commercial use requires prior written permission from the copyright holder.
 'use strict';
 
 /** 评论采集器命令行配置示例。复制为 config.js 后运行 npm run cli。 */

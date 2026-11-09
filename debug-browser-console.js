@@ -1,3 +1,5 @@
+// Copyright (c) 2026 wu. All rights reserved.
+// Commercial use requires prior written permission from the copyright holder.
 // 简单的浏览器控制台脚本
 // 在抖音视频页面打开浏览器控制台（F12），复制粘贴运行这个脚本
 

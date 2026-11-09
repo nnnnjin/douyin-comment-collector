@@ -1,3 +1,5 @@
+// Copyright (c) 2026 wu. All rights reserved.
+// Commercial use requires prior written permission from the copyright holder.
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const DouyinAutoPlayer = require('./douyin-auto');
