@@ -32,7 +32,7 @@ if (config) {
   }, {
     onProgress(update) {
       const counters = update.counters || {};
-      console.log(`[${update.phase}] ${update.message} | 视频 ${counters.videos || 0} 评论 ${counters.comments || 0} 匹配 ${counters.matched || 0} 已发 ${counters.sent || 0}`);
+      console.log(`[${update.phase}] ${update.message} | 已查看 ${counters.viewed || 0} 采集 ${counters.collected || 0} 私信 ${counters.messaged || 0} 成功 ${counters.sent || 0}`);
     }
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => collector.stop(`收到 ${signal}`));

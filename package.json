@@ -53,6 +53,7 @@
     },
     "files": [
       "main-collector.js",
+      "message-editor.js",
       "account-profile-manager.js",
       "preload.js",
       "comment-collector.html",

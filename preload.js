@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('collectorAPI', Object.freeze({
   stop: runId => ipcRenderer.invoke('collector:stop', runId),
   getState: () => ipcRenderer.invoke('collector:state'),
   openOutput: () => ipcRenderer.invoke('collector:open-output'),
+  getPending: () => ipcRenderer.invoke('collector:pending'),
+  send: payload => ipcRenderer.invoke('collector:send', payload),
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
   prepareAccount: options => ipcRenderer.invoke('accounts:prepare', options),
   cancelAccountPreparation: () => ipcRenderer.invoke('accounts:cancel-prepare'),

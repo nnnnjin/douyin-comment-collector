@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const {
-  atomicWriteJson, CollectorError, ensureProfileAvailable, accountFingerprintFromCookies
+  atomicWriteJson, CollectorError, ensureProfileAvailable
 } = require('./douyin-comment-collector');
 
 function cleanLabel(value) {
@@ -21,37 +21,106 @@ function accountIdFromUrl(rawUrl) {
   }
 }
 
-async function detectLoggedInAccount(page) {
-  const cookies = await page.cookies().catch(() => []);
-  const hasSession = cookies.some(cookie => /^(sessionid|sessionid_ss|sid_guard)$/.test(cookie.name) && cookie.value);
-  if (!hasSession) return null;
-  const accountId = accountFingerprintFromCookies(cookies);
-  if (!accountId) return null;
-
-  const fromPage = await page.evaluate(() => {
-    const selectors = [
-      '[data-e2e="user-info"] a[href*="/user/"]',
-      '[data-e2e="user-avatar"] a[href*="/user/"]',
-      'header a[href*="/user/"]',
-      'nav a[href*="/user/"]',
-      'a[href*="/user/"] img'
-    ];
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      const link = element?.closest?.('a[href*="/user/"]') || element;
-      if (link?.href) {
-        return {
-          href: link.href,
-          nickname: (link.getAttribute('aria-label') || link.textContent || element?.getAttribute?.('alt') || '').trim()
-        };
-      }
+async function readDouyinCookies(page) {
+  if (!page || (typeof page.isClosed === 'function' && page.isClosed())) return [];
+  try {
+    const client = await page.createCDPSession();
+    try {
+      const { cookies } = await client.send('Network.getAllCookies');
+      return (cookies || []).filter(cookie => /douyin\.com|snssdk\.com/i.test(cookie.domain || ''));
+    } finally {
+      await client.detach().catch(() => {});
     }
-    return null;
-  }).catch(() => null);
+  } catch {
+    return page.cookies('https://www.douyin.com/').catch(() => page.cookies().catch(() => []));
+  }
+}
 
-  let nickname = fromPage?.nickname || '';
-  if (!nickname) nickname = `已登录账号 ${accountId.slice(-6)}`;
-  return { accountId, nickname };
+async function hasLoginSession(page) {
+  const cookies = await readDouyinCookies(page);
+  return cookies.some(cookie => /^(sessionid|sessionid_ss|sid_guard|sid_tt)$/.test(cookie.name) && cookie.value);
+}
+
+function identityFromProfilePayload(payload) {
+  const user = payload?.user || payload?.user_info || payload?.data?.user || null;
+  if (!user || typeof user !== 'object') return null;
+  const accountId = String(user.sec_uid || user.secUid || '').trim();
+  if (!accountId || accountId === 'self') return null;
+  const nickname = String(user.nickname || user.nick_name || '').trim();
+  return { accountId, nickname: nickname || `账号 ${accountId.slice(-4)}` };
+}
+
+function identityFromRequestUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+    if (!/\/aweme\/v1\/web\/(aweme\/post|aweme\/favorite|user\/profile)/.test(url.pathname)) return '';
+    return String(url.searchParams.get('sec_user_id') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+async function waitForSelfIdentity(page, timeoutMs = 15000) {
+  let resolved = null;
+  let fallbackId = '';
+  const onResponse = async response => {
+    if (resolved) return;
+    const url = response.url();
+    if (/\/aweme\/v1\/web\/user\/profile\/self\/?/.test(url)) {
+      try {
+        const identity = identityFromProfilePayload(await response.json());
+        if (identity) resolved = identity;
+      } catch { /* ignore non-json */ }
+      return;
+    }
+    const fromQuery = identityFromRequestUrl(url);
+    if (fromQuery) fallbackId = fromQuery;
+  };
+  page.on('response', onResponse);
+  try {
+    const alreadyOnSelf = /\/user\/self(?:\/|$)/.test(page.url());
+    if (!alreadyOnSelf && !accountIdFromUrl(page.url())) {
+      await page.goto('https://www.douyin.com/user/self', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    } else if (alreadyOnSelf) {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && !resolved) {
+      const fromUrl = accountIdFromUrl(page.url());
+      if (fromUrl) {
+        const nickname = await page.evaluate(() => {
+          const text = document.querySelector('h1, [data-e2e="user-info"] h1, [data-e2e="user-title"]')?.textContent?.trim() || '';
+          return text && text.length <= 40 ? text : '';
+        }).catch(() => '');
+        resolved = { accountId: fromUrl, nickname: nickname || `账号 ${fromUrl.slice(-4)}` };
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    if (!resolved && fallbackId) {
+      const nickname = await page.evaluate(() => {
+        const text = document.querySelector('h1, [data-e2e="user-info"] h1, [data-e2e="user-title"]')?.textContent?.trim() || '';
+        return text && text.length <= 40 ? text : '';
+      }).catch(() => '');
+      resolved = { accountId: fallbackId, nickname: nickname || `账号 ${fallbackId.slice(-4)}` };
+    }
+    return resolved;
+  } finally {
+    page.off('response', onResponse);
+  }
+}
+
+async function detectLoggedInAccount(page) {
+  if (!(await hasLoginSession(page))) return null;
+  const fromUrl = accountIdFromUrl(page.url());
+  if (fromUrl) {
+    const nickname = await page.evaluate(() => {
+      const text = document.querySelector('h1, [data-e2e="user-info"] h1, [data-e2e="user-title"]')?.textContent?.trim() || '';
+      return text && text.length <= 40 ? text : '';
+    }).catch(() => '');
+    return { accountId: fromUrl, nickname: nickname || `账号 ${fromUrl.slice(-4)}` };
+  }
+  return waitForSelfIdentity(page);
 }
 
 class AccountProfileStore {
@@ -76,7 +145,10 @@ class AccountProfileStore {
   }
 
   list() {
-    return this.load().map(profile => ({ ...profile, ready: Boolean(profile.accountId) }));
+    return this.load().map(profile => ({
+      ...profile,
+      ready: Boolean(profile.accountId) && !String(profile.accountId).startsWith('cookie:')
+    }));
   }
 
   ensureLegacyProfile(legacyProfileDir) {
@@ -113,7 +185,8 @@ class AccountProfileStore {
     if (duplicate) {
       throw new CollectorError('ACCOUNT_ALREADY_BOUND', `该抖音账号已绑定到“${duplicate.label}”，不能再绑定另一个浏览器`);
     }
-    if (existing?.accountId && existing.accountId !== accountId) {
+    const legacyBinding = String(existing?.accountId || '').startsWith('cookie:');
+    if (existing?.accountId && !legacyBinding && existing.accountId !== accountId) {
       throw new CollectorError('ACCOUNT_MISMATCH', `“${existing.label}”已绑定其他抖音账号，请在打开的浏览器中切回原账号`);
     }
     const next = {
@@ -137,9 +210,28 @@ class AccountProfileManager {
     this.onUpdate = onUpdate;
     this.browser = null;
     this.abortController = null;
+    this.browserClosedByUser = false;
   }
 
   list() { return this.store.list(); }
+
+  sleep(ms, signal) {
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new CollectorError('ABORTED', '已取消浏览器准备'));
+      };
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  isBrowserOpen() {
+    return Boolean(this.browser?.connected) && !this.browserClosedByUser;
+  }
 
   async prepare({ profileId, label }) {
     if (this.browser || this.abortController) throw new CollectorError('PREPARATION_RUNNING', '已有浏览器正在准备');
@@ -147,6 +239,7 @@ class AccountProfileManager {
     if (profileId && !existing) throw new CollectorError('PROFILE_NOT_FOUND', '选择的浏览器配置不存在');
     const draft = existing || this.store.createDraft(label);
     this.abortController = new AbortController();
+    this.browserClosedByUser = false;
     const signal = this.abortController.signal;
     const notify = (status, message, extra = {}) => this.onUpdate({
       profileId: draft.id, status, message, ...extra
@@ -164,54 +257,109 @@ class AccountProfileManager {
         userDataDir: draft.profileDir,
         args: ['--disable-blink-features=AutomationControlled', '--window-size=1400,900']
       });
+      this.browser.on('disconnected', () => {
+        this.browserClosedByUser = true;
+      });
       const pages = await this.browser.pages();
-      const page = pages[0] || await this.browser.newPage();
+      let page = pages[0] || await this.browser.newPage();
       await page.goto('https://www.douyin.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-      notify('waiting_login', '请在打开的浏览器中登录要绑定的抖音账号');
-      const deadline = Date.now() + 300000;
-      while (Date.now() < deadline) {
+      notify('waiting_login', '请在打开的浏览器中登录；每 10 秒检查一次，未登录时不会改动页面');
+
+      while (true) {
         if (signal.aborted) throw new CollectorError('ABORTED', '已取消浏览器准备');
-        const identity = await detectLoggedInAccount(page);
-        if (identity) {
-          if (existing?.accountId && existing.accountId !== identity.accountId) {
-            notify('account_mismatch', `当前登录账号与“${existing.label}”绑定账号不一致，请切回 ${existing.nickname || '原账号'}`);
-          } else {
-            const profile = this.store.bind({
-              profileId: draft.id,
-              label: draft.label,
-              profileDir: draft.profileDir,
-              accountId: identity.accountId,
-              nickname: identity.nickname
-            });
-            notify('ready', `已绑定：${profile.label} ↔ ${profile.nickname}`, { profile });
-            return profile;
+        if (!this.isBrowserOpen()) {
+          notify('browser_closed', '浏览器已关闭，账号状态未改动，可重新点击检查所选');
+          throw new CollectorError('BROWSER_CLOSED', '浏览器已关闭');
+        }
+
+        if (page.isClosed()) {
+          const openPages = await this.browser.pages().catch(() => []);
+          page = openPages.find(item => !item.isClosed()) || null;
+          if (!page) {
+            notify('browser_closed', '浏览器已关闭，账号状态未改动，可重新点击检查所选');
+            throw new CollectorError('BROWSER_CLOSED', '浏览器已关闭');
           }
         }
-        await new Promise((resolve, reject) => {
-          const onAbort = () => {
-            clearTimeout(timer);
-            reject(new CollectorError('ABORTED', '已取消浏览器准备'));
-          };
-          const timer = setTimeout(() => {
-            signal.removeEventListener('abort', onAbort);
-            resolve();
-          }, 2000);
-          signal.addEventListener('abort', onAbort, { once: true });
+
+        let loggedIn = false;
+        try {
+          loggedIn = await hasLoginSession(page);
+        } catch (error) {
+          if (!this.isBrowserOpen() || /Target closed|Session closed|Protocol error|browser has disconnected/i.test(error.message || '')) {
+            notify('browser_closed', '浏览器已关闭，账号状态未改动，可重新点击检查所选');
+            throw new CollectorError('BROWSER_CLOSED', '浏览器已关闭');
+          }
+          throw error;
+        }
+
+        if (!loggedIn) {
+          notify('waiting_login', '尚未登录，继续等待；可在浏览器中登录，或直接关闭浏览器后重新检查');
+          await this.sleep(10000, signal);
+          continue;
+        }
+
+        notify('waiting_login', '已登录，正在识别账号...');
+        let identity = null;
+        try {
+          identity = await detectLoggedInAccount(page);
+        } catch (error) {
+          if (!this.isBrowserOpen() || /Target closed|Session closed|Protocol error|browser has disconnected/i.test(error.message || '')) {
+            notify('browser_closed', '浏览器已关闭，账号状态未改动，可重新点击检查所选');
+            throw new CollectorError('BROWSER_CLOSED', '浏览器已关闭');
+          }
+          throw error;
+        }
+
+        if (!identity) {
+          notify('waiting_login', '已登录，但还没读到账号信息；10 秒后重试，其间不会改动你的登录状态');
+          await this.sleep(10000, signal);
+          continue;
+        }
+
+        const legacyBinding = String(existing?.accountId || '').startsWith('cookie:');
+        if (existing?.accountId && !legacyBinding && existing.accountId !== identity.accountId) {
+          notify('account_mismatch', `当前登录账号与“${existing.label}”绑定账号不一致，请切回 ${existing.nickname || '原账号'}`);
+          await this.sleep(10000, signal);
+          continue;
+        }
+
+        const profile = this.store.bind({
+          profileId: draft.id,
+          label: draft.label,
+          profileDir: draft.profileDir,
+          accountId: identity.accountId,
+          nickname: identity.nickname
         });
+        notify('ready', `已绑定：${profile.label} ↔ ${profile.nickname}`, { profile });
+        return profile;
       }
-      throw new CollectorError('LOGIN_TIMEOUT', '等待账号登录超时');
+    } catch (error) {
+      if (signal.aborted || error.code === 'ABORTED') throw new CollectorError('ABORTED', '已取消浏览器准备');
+      if (error.code === 'BROWSER_CLOSED' || this.browserClosedByUser) {
+        throw new CollectorError('BROWSER_CLOSED', '浏览器已关闭');
+      }
+      throw error;
     } finally {
       const browser = this.browser;
       this.browser = null;
       this.abortController = null;
-      if (browser) await browser.close().catch(() => {});
+      if (browser?.connected) await browser.close().catch(() => {});
+      this.browserClosedByUser = false;
     }
   }
 
   async cancel() {
     if (this.abortController && !this.abortController.signal.aborted) this.abortController.abort();
-    if (this.browser) await this.browser.close().catch(() => {});
+    if (this.browser?.connected) await this.browser.close().catch(() => {});
   }
 }
 
-module.exports = { AccountProfileStore, AccountProfileManager, detectLoggedInAccount, accountIdFromUrl };
+module.exports = {
+  AccountProfileStore,
+  AccountProfileManager,
+  detectLoggedInAccount,
+  hasLoginSession,
+  identityFromProfilePayload,
+  identityFromRequestUrl,
+  accountIdFromUrl
+};

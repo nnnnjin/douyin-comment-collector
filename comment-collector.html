@@ -168,7 +168,7 @@
     .stats {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
+      gap: 12px;
       margin-top: 16px;
     }
 
@@ -184,7 +184,7 @@
     }
 
     .stat-value {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 500;
       color: #C4612F;
     }
@@ -304,10 +304,52 @@
       color: #5C635D;
     }
 
+    .lead-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .lead-list {
+      max-height: 360px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .lead-row {
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 10px 12px;
+      border: 1px solid #E7E1D7;
+      border-radius: 10px;
+      background: #FFFFFF;
+    }
+
+    .lead-comment {
+      font-size: 13px;
+      color: #1F2421;
+    }
+
+    .lead-meta, .lead-status {
+      font-size: 12px;
+      color: #5C635D;
+    }
+
+    .lead-status.sent { color: #2F6B4F; }
+    .lead-status.bad { color: #A42820; }
+
     @media (max-width: 700px) {
       body { padding: 16px; }
       .container { padding: 24px; }
       .form-grid { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
@@ -315,7 +357,7 @@
   <div class="container">
     <span class="badge">评论采集工具</span>
     <h1>抖音评论采集和私信</h1>
-    <p class="subtitle">搜索关键词，采集评论，智能筛选并发送私信</p>
+    <p class="subtitle">搜索并筛选评论，命中后立即私信；同一搜索词下已发出或未确认的用户会跳过</p>
 
     <div class="account-panel">
       <label for="browserProfile">截流浏览器与抖音账号</label>
@@ -333,9 +375,12 @@
     </div>
 
     <div class="form-group">
-      <label for="searchKeyword">搜索关键词</label>
-      <input type="text" id="searchKeyword" placeholder="例如：减肥、健身、美食">
-      <div class="hint">在抖音搜索这个关键词的相关视频</div>
+      <label for="searchKeyword">截流搜索关键词</label>
+      <div class="keyword-input">
+        <input type="text" id="searchKeyword" placeholder="输入搜索词后按回车添加，例如：减肥">
+      </div>
+      <div class="keyword-tags" id="searchKeywordTags"></div>
+      <div class="hint">用这些词搜索视频，可以添加多个。</div>
     </div>
 
     <div class="form-group">
@@ -344,7 +389,7 @@
         <input type="text" id="commentKeyword" placeholder="输入关键词后按回车添加">
       </div>
       <div class="keyword-tags" id="keywordTags"></div>
-      <div class="hint">只采集包含这些关键词的评论（例如：想要、怎么、求推荐）</div>
+      <div class="hint">只保留包含这些词的评论，并继续往下翻，直到凑够数量或没有更多评论。</div>
     </div>
 
     <div class="form-group">
@@ -355,12 +400,23 @@
 
     <div class="form-grid">
       <div class="form-group">
+        <label for="commentAgeDays">评论发布时间</label>
+        <select id="commentAgeDays">
+          <option value="0">不限</option>
+          <option value="10">10天以内</option>
+          <option value="20">20天以内</option>
+          <option value="30">一个月以内（30天）</option>
+          <option value="365">一年以内（365天）</option>
+        </select>
+        <div class="hint">按任务开始时间计算；限定时间时，时间不明的评论不参与匹配和私信。结果文件保留发布时间。</div>
+      </div>
+      <div class="form-group">
         <label for="maxVideos">采集视频数量</label>
         <input type="number" id="maxVideos" value="5" min="1" max="50">
       </div>
       <div class="form-group">
-        <label for="maxComments">每个视频评论数</label>
-        <input type="number" id="maxComments" value="30" min="1" max="200">
+        <label for="maxComments">每个视频保留的命中评论</label>
+        <input type="number" id="maxComments" value="50" min="1" max="200">
       </div>
       <div class="form-group">
         <label for="messageDelay">私信间隔（秒）</label>
@@ -368,8 +424,8 @@
       </div>
       <div class="form-group">
         <label for="maxMessages">本次最多私信</label>
-        <input type="number" id="maxMessages" value="0" min="0" max="500">
-        <div class="hint">0 表示不限制；首次实测请填 1</div>
+        <input type="number" id="maxMessages" value="1" min="1" max="500">
+        <div class="hint">命中后立即私信。对方没有限制、并且已经发出的，记为已发送并计入上限。打不开或对方限制的不占次数。同一搜索词下，已发送过的人会自动跳过。</div>
       </div>
       <div class="form-group">
         <label for="pageTimeout">页面超时（秒）</label>
@@ -394,20 +450,32 @@
       </div>
       <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
       <div class="stats">
-        <div class="stat-item">
-          <div class="stat-label">采集评论</div>
-          <div class="stat-value" id="commentCount">0</div>
+        <div class="stat-item" title="翻过的评论条数，包括不符合条件的">
+          <div class="stat-label">已查看</div>
+          <div class="stat-value" id="viewedCount">0</div>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">匹配用户</div>
-          <div class="stat-value" id="matchedCount">0</div>
+        <div class="stat-item" title="符合筛选条件、纳入本次的评论条数">
+          <div class="stat-label">采集数</div>
+          <div class="stat-value" id="collectedCount">0</div>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">发送私信</div>
-          <div class="stat-value" id="messageCount">0</div>
+        <div class="stat-item" title="实际执行过私信动作的人数，不含已跳过">
+          <div class="stat-label">私信数</div>
+          <div class="stat-value" id="messagedCount">0</div>
         </div>
       </div>
       <button class="btn-secondary output-link" id="openOutputBtn">打开结果目录</button>
+    </div>
+
+    <div class="status-panel hidden" id="leadPanel">
+      <div class="status-text">待发送名单</div>
+      <div class="lead-toolbar">
+        <label class="hint"><input type="checkbox" id="selectAllLeads" checked> 全选可发送用户</label>
+        <span class="hint" id="leadSummary"></span>
+      </div>
+      <div class="lead-list" id="leadList"></div>
+      <div class="button-group">
+        <button class="btn-primary" id="sendBtn" disabled>发送私信</button>
+      </div>
     </div>
   </div>
 
@@ -416,9 +484,9 @@
     const stopBtn = document.getElementById('stopBtn');
     const statusPanel = document.getElementById('statusPanel');
     const statusText = document.getElementById('statusText');
-    const commentCountEl = document.getElementById('commentCount');
-    const matchedCountEl = document.getElementById('matchedCount');
-    const messageCountEl = document.getElementById('messageCount');
+    const viewedCountEl = document.getElementById('viewedCount');
+    const collectedCountEl = document.getElementById('collectedCount');
+    const messagedCountEl = document.getElementById('messagedCount');
     const keywordTagsEl = document.getElementById('keywordTags');
     const commentKeywordInput = document.getElementById('commentKeyword');
     const phaseText = document.getElementById('phaseText');
@@ -431,9 +499,18 @@
     const checkBrowserBtn = document.getElementById('checkBrowserBtn');
     const cancelPrepareBtn = document.getElementById('cancelPrepareBtn');
     const accountStatus = document.getElementById('accountStatus');
+    const searchKeywordInput = document.getElementById('searchKeyword');
+    const searchKeywordTagsEl = document.getElementById('searchKeywordTags');
+    const leadPanel = document.getElementById('leadPanel');
+    const leadListEl = document.getElementById('leadList');
+    const leadSummary = document.getElementById('leadSummary');
+    const selectAllLeads = document.getElementById('selectAllLeads');
+    const sendBtn = document.getElementById('sendBtn');
 
     let activeRunId = null;
     let keywords = [];
+    let searchKeywords = [];
+    let leads = [];
     let accountProfiles = [];
     let preparingAccount = false;
 
@@ -467,17 +544,30 @@
       checkBrowserBtn.disabled = preparing || !selectedProfile();
       cancelPrepareBtn.classList.toggle('hidden', !preparing);
       startBtn.disabled = preparing || Boolean(activeRunId);
+      updateSendButton();
     }
 
     async function prepareAccount(options) {
       setPreparing(true);
-      accountStatus.textContent = '正在打开独立浏览器，请在其中登录对应的抖音账号...';
+      accountStatus.classList.remove('error-text');
+      accountStatus.textContent = '正在打开独立浏览器，请在其中登录；每 10 秒检查一次...';
       try {
         const profile = await window.collectorAPI.prepareAccount(options);
-        await loadAccounts(profile.id);
-        newBrowserLabelEl.value = '';
+        if (profile?.id) {
+          await loadAccounts(profile.id);
+          newBrowserLabelEl.value = '';
+        } else {
+          updateAccountSelection();
+        }
       } catch (error) {
-        accountStatus.textContent = error.message || '浏览器账号准备失败';
+        const message = error.message || '';
+        if (/已取消|浏览器已关闭/.test(message)) {
+          accountStatus.classList.remove('error-text');
+          updateAccountSelection();
+        } else {
+          accountStatus.textContent = message || '浏览器账号准备失败';
+          accountStatus.classList.add('error-text');
+        }
       } finally {
         setPreparing(false);
       }
@@ -497,26 +587,22 @@
     cancelPrepareBtn.addEventListener('click', () => window.collectorAPI.cancelAccountPreparation());
 
     window.collectorAPI.onAccountUpdate(update => {
+      if (['cancelled', 'browser_closed'].includes(update.status)) {
+        accountStatus.classList.remove('error-text');
+        updateAccountSelection();
+        return;
+      }
+      if (update.status === 'ready') {
+        accountStatus.classList.remove('error-text');
+        loadAccounts(update.profile?.id || update.profileId);
+        return;
+      }
       accountStatus.textContent = update.message || '正在准备浏览器账号';
       accountStatus.classList.toggle('error-text', ['failed', 'account_mismatch'].includes(update.status));
-      if (update.status === 'ready') loadAccounts(update.profile?.id || update.profileId);
     });
 
-    // 添加关键词
-    commentKeywordInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        const keyword = commentKeywordInput.value.trim();
-        if (keyword && !keywords.includes(keyword)) {
-          keywords.push(keyword);
-          updateKeywordTags();
-          commentKeywordInput.value = '';
-        }
-      }
-    });
-
-    function updateKeywordTags() {
-      keywordTagsEl.replaceChildren(...keywords.map((keyword, index) => {
+    function renderTags(container, items, onRemove) {
+      container.replaceChildren(...items.map((keyword, index) => {
         const tag = document.createElement('span');
         tag.className = 'tag';
         tag.append(document.createTextNode(keyword));
@@ -525,22 +611,148 @@
         remove.textContent = '×';
         remove.setAttribute('role', 'button');
         remove.setAttribute('aria-label', `删除关键词 ${keyword}`);
-        remove.addEventListener('click', () => {
-          keywords.splice(index, 1);
-          updateKeywordTags();
-        });
+        remove.addEventListener('click', () => onRemove(index));
         tag.append(remove);
         return tag;
       }));
     }
 
+    function commitKeyword(input, items, render) {
+      const keyword = input.value.trim();
+      if (keyword && !items.includes(keyword)) items.push(keyword);
+      input.value = '';
+      render();
+    }
+
+    function renderSearchTags() {
+      renderTags(searchKeywordTagsEl, searchKeywords, index => {
+        searchKeywords.splice(index, 1);
+        renderSearchTags();
+      });
+    }
+
+    function renderCommentTags() {
+      renderTags(keywordTagsEl, keywords, index => {
+        keywords.splice(index, 1);
+        renderCommentTags();
+      });
+    }
+
+    searchKeywordInput.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      commitKeyword(searchKeywordInput, searchKeywords, renderSearchTags);
+    });
+
+    commentKeywordInput.addEventListener('keydown', event => {
+      if (event.key !== 'Enter') return;
+      event.preventDefault();
+      commitKeyword(commentKeywordInput, keywords, renderCommentTags);
+    });
+
+    function leadLocked(lead) {
+      return lead.status === 'sent' || lead.status === 'skipped_duplicate';
+    }
+
+    function leadNeedsReview(lead) {
+      return lead.status === 'unconfirmed' || lead.status === 'needs_review';
+    }
+
+    function leadSelectable(lead) {
+      if (leadLocked(lead)) return false;
+      if (leadNeedsReview(lead)) return Boolean(lead.allowRetry);
+      return true;
+    }
+
+    function selectedLeads() {
+      return leads.filter(lead => lead.selected && leadSelectable(lead));
+    }
+
+    function updateSendButton() {
+      sendBtn.disabled = preparingAccount || Boolean(activeRunId) || selectedLeads().length === 0;
+      const selectable = leads.filter(leadSelectable);
+      selectAllLeads.checked = selectable.length > 0 && selectable.every(lead => lead.selected);
+      leadSummary.textContent = leads.length ? `${selectedLeads().length} / ${leads.length} 个将发送` : '';
+    }
+
+    function statusLabel(lead) {
+      const labels = {
+        sent: '已发送',
+        unconfirmed: '待确认',
+        needs_review: '待确认',
+        failed: '发送前失败',
+        skipped_duplicate: '已发过',
+        blocked: '访问受限',
+        unavailable: '无法私信'
+      };
+      return labels[lead.status] || '待发送';
+    }
+
+    function renderLeads() {
+      leadPanel.classList.toggle('hidden', leads.length === 0);
+      leadListEl.replaceChildren(...leads.map(lead => {
+        const row = document.createElement('div');
+        row.className = 'lead-row';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = Boolean(lead.selected) && leadSelectable(lead);
+        checkbox.disabled = !leadSelectable(lead) && !leadNeedsReview(lead);
+        if (leadNeedsReview(lead) && !lead.allowRetry) checkbox.disabled = true;
+        checkbox.addEventListener('change', () => {
+          lead.selected = checkbox.checked;
+          updateSendButton();
+        });
+        const body = document.createElement('div');
+        const comment = document.createElement('div');
+        comment.className = 'lead-comment';
+        comment.textContent = `${lead.username || '未知用户'}：${lead.content || ''}`;
+        const meta = document.createElement('div');
+        meta.className = 'lead-meta';
+        const when = lead.publishedAt ? new Date(lead.publishedAt).toLocaleString() : (lead.timeText || '时间不明');
+        meta.textContent = `${lead.matchedKeyword ? `命中“${lead.matchedKeyword}” · ` : ''}${when}`;
+        body.append(comment, meta);
+        const status = document.createElement('div');
+        status.className = `lead-status${lead.status === 'sent' ? ' sent' : ''}${['failed', 'blocked', 'unconfirmed', 'needs_review'].includes(lead.status) ? ' bad' : ''}`;
+        status.textContent = lead.error && lead.status !== 'sent' ? `${statusLabel(lead)}：${lead.error}` : statusLabel(lead);
+        row.append(checkbox, body, status);
+        return row;
+      }));
+      updateSendButton();
+    }
+
+    function showLeads(items) {
+      const previous = new Map(leads.map(lead => [lead.key, lead]));
+      leads = items.map(lead => {
+        const old = previous.get(lead.key);
+        const status = lead.status || old?.status || '';
+        const needsReview = status === 'unconfirmed' || status === 'needs_review';
+        const locked = status === 'sent' || status === 'skipped_duplicate';
+        return {
+          ...lead,
+          status,
+          allowRetry: old?.allowRetry || false,
+          selected: locked || needsReview ? Boolean(old?.selected && old?.allowRetry) : (old ? old.selected : true)
+        };
+      });
+      renderLeads();
+    }
+
     function setRunning(running) {
       startBtn.disabled = running || preparingAccount;
       stopBtn.disabled = !running;
+      updateSendButton();
     }
 
+    selectAllLeads.addEventListener('change', () => {
+      for (const lead of leads) {
+        if (leadSelectable(lead) || (leadNeedsReview(lead) && lead.allowRetry)) lead.selected = selectAllLeads.checked;
+      }
+      renderLeads();
+    });
+
     startBtn.addEventListener('click', async () => {
-      const searchKeyword = document.getElementById('searchKeyword').value.trim();
+      commitKeyword(searchKeywordInput, searchKeywords, renderSearchTags);
+      commitKeyword(commentKeywordInput, keywords, renderCommentTags);
       const messageTemplate = document.getElementById('messageTemplate').value.trim();
       const profile = selectedProfile();
 
@@ -549,8 +761,8 @@
         return;
       }
 
-      if (!searchKeyword) {
-        alert('请输入搜索关键词');
+      if (searchKeywords.length === 0) {
+        alert('请至少添加一个搜索关键词');
         return;
       }
 
@@ -566,8 +778,9 @@
 
       const config = {
         profileId: profile.id,
-        searchKeyword,
-        commentKeywords: keywords,
+        searchKeywords: [...searchKeywords],
+        commentKeywords: [...keywords],
+        commentAgeDays: Number(document.getElementById('commentAgeDays').value),
         messageTemplate,
         maxVideos: parseInt(document.getElementById('maxVideos').value),
         maxCommentsPerVideo: parseInt(document.getElementById('maxComments').value),
@@ -576,11 +789,14 @@
         pageTimeout: parseInt(document.getElementById('pageTimeout').value) * 1000,
         emptyScrollLimit: parseInt(document.getElementById('emptyScrollLimit').value),
         maxConsecutiveMessageFailures: 3,
+        reviewBeforeSend: false,
         headless: false
       };
 
+      leads = [];
+      renderLeads();
       statusPanel.classList.remove('hidden');
-      statusText.textContent = '正在启动程序...';
+      statusText.textContent = '正在采集；每采完一个视频就逐个私信...';
       statusText.classList.remove('error-text');
       setRunning(true);
       try {
@@ -602,24 +818,77 @@
 
     openOutputBtn.addEventListener('click', () => window.collectorAPI.openOutput());
 
+    sendBtn.addEventListener('click', async () => {
+      const chosen = selectedLeads();
+      if (chosen.length === 0) {
+        alert('请至少选择一个用户');
+        return;
+      }
+      statusPanel.classList.remove('hidden');
+      statusText.textContent = '正在打开浏览器并发送私信...';
+      statusText.classList.remove('error-text');
+      setRunning(true);
+      try {
+        const result = await window.collectorAPI.send({
+          userKeys: chosen.map(lead => lead.key),
+          retryKeys: chosen.filter(lead => lead.allowRetry).map(lead => lead.key)
+        });
+        activeRunId = result.runId;
+      } catch (error) {
+        activeRunId = null;
+        setRunning(false);
+        statusText.textContent = error.message || '发送失败';
+        statusText.classList.add('error-text');
+      }
+    });
+
+    function renderCounters(counters = {}) {
+      viewedCountEl.textContent = counters.viewed || 0;
+      collectedCountEl.textContent = counters.collected || 0;
+      messagedCountEl.textContent = counters.messaged || 0;
+    }
+
     window.collectorAPI.onUpdate(update => {
       if (activeRunId && update.runId !== activeRunId) return;
-      if (!activeRunId) activeRunId = update.runId;
-      const counters = update.counters || {};
-      commentCountEl.textContent = counters.comments || 0;
-      matchedCountEl.textContent = counters.matched || 0;
-      messageCountEl.textContent = counters.sent || 0;
+      if (!activeRunId && update.runId) activeRunId = update.runId;
+      renderCounters(update.counters);
+      if (update.status === 'heartbeat') {
+        activityText.textContent = `最近活动：${update.lastActivityAt ? new Date(update.lastActivityAt).toLocaleTimeString() : '—'}`;
+        return;
+      }
       statusText.textContent = update.message || '任务运行中';
+      if (update.summary) {
+        const errors = [...new Set([
+          ...(update.summary.warnings || []),
+          ...(update.summary.messageResults || []).map(item => item.error).filter(Boolean)
+        ])];
+        if (errors.length) statusText.textContent += '：' + errors.join('；');
+      }
       phaseText.textContent = `阶段：${update.phase || '—'}`;
       activityText.textContent = `最近活动：${update.lastActivityAt ? new Date(update.lastActivityAt).toLocaleTimeString() : '—'}`;
       const current = Number(update.progress?.current || 0);
       const total = Number(update.progress?.total || 0);
-      progressBar.style.width = total > 0 ? `${Math.min(100, current / total * 100)}%` : '0%';
-      const terminal = ['completed', 'completed_with_warnings', 'failed', 'aborted'].includes(update.status);
+      if (update.progress && total > 0) progressBar.style.width = `${Math.min(100, current / total * 100)}%`;
+      if (update.leads) showLeads(update.leads);
+      if (update.leadUpdate) {
+        const lead = leads.find(item => item.key === update.leadUpdate.key);
+        if (lead) {
+          lead.status = update.leadUpdate.status;
+          lead.error = update.leadUpdate.error || '';
+          if (lead.status === 'sent' || lead.status === 'skipped_duplicate') lead.selected = false;
+          renderLeads();
+        }
+      }
+      const terminal = ['completed', 'completed_with_warnings', 'failed', 'aborted', 'ready_to_send'].includes(update.status);
       statusText.classList.toggle('error-text', update.status === 'failed');
       if (terminal) {
         activeRunId = null;
         setRunning(false);
+        if (['failed', 'aborted'].includes(update.status) && leads.length === 0) {
+          window.collectorAPI.getPending().then(pending => {
+            if (pending?.leads?.length) showLeads(pending.leads);
+          });
+        }
       }
     });
 
@@ -632,6 +901,9 @@
     });
 
     loadAccounts();
+    window.collectorAPI.getPending().then(pending => {
+      if (pending?.leads?.length) showLeads(pending.leads);
+    });
   </script>
 </body>
 </html>

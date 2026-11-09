@@ -1,6 +1,7 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const DouyinCommentCollector = require('./douyin-comment-collector');
@@ -13,6 +14,24 @@ let activePreparation = null;
 
 function runtimeRoot() {
   return app.isPackaged ? app.getPath('userData') : __dirname;
+}
+
+function pendingPath() {
+  return path.join(runtimeRoot(), 'output', 'pending-send.json');
+}
+
+function readPending() {
+  try {
+    const data = JSON.parse(fs.readFileSync(pendingPath(), 'utf8'));
+    if (!data || !Array.isArray(data.leads) || !data.config) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+function profileReady(profile) {
+  return Boolean(profile?.accountId) && !String(profile.accountId).startsWith('cookie:');
 }
 
 function sendUpdate(update) {
@@ -45,7 +64,7 @@ ipcMain.handle('collector:start', async (_event, config) => {
   if (activeTask) throw new Error('已有任务正在运行');
   if (activePreparation) throw new Error('请先完成或取消浏览器账号准备');
   const profile = accountManager?.store.get(String(config.profileId || ''));
-  if (!profile?.accountId) throw new Error('请先选择并准备一个已绑定抖音账号的浏览器');
+  if (!profileReady(profile)) throw new Error('请先选择并准备一个已绑定抖音账号的浏览器');
   const runId = crypto.randomUUID();
   const task = new DouyinCommentCollector({
     ...config,
@@ -83,8 +102,47 @@ ipcMain.handle('collector:state', () => ({
 }));
 
 ipcMain.handle('collector:open-output', async () => {
-  const error = await shell.openPath(path.join(runtimeRoot(), 'output'));
+  const outputDir = path.join(runtimeRoot(), 'output');
+  fs.mkdirSync(outputDir, { recursive: true });
+  const error = await shell.openPath(outputDir);
   return { ok: !error, error };
+});
+
+ipcMain.handle('collector:pending', () => readPending());
+
+ipcMain.handle('collector:send', async (_event, payload = {}) => {
+  if (activeTask) throw new Error('已有任务正在运行');
+  if (activePreparation) throw new Error('请先完成或取消浏览器账号准备');
+  const pending = readPending();
+  if (!pending) throw new Error('没有可发送的名单，请先采集');
+  const profile = accountManager?.store.get(String(pending.config.profileId || ''));
+  if (!profileReady(profile)) throw new Error('请先重新检查要用来发送的浏览器账号');
+  const selected = new Set((payload.userKeys || []).map(String));
+  const leads = pending.leads.filter(lead => selected.has(String(lead.key)));
+  if (leads.length === 0) throw new Error('请至少选择一个用户');
+  const retryKeys = (payload.retryKeys || []).map(String).filter(key => selected.has(key));
+  const runId = crypto.randomUUID();
+  const task = new DouyinCommentCollector({
+    ...pending.config,
+    reviewBeforeSend: false,
+    profileId: profile.id,
+    profileLabel: profile.label,
+    expectedAccountId: profile.accountId,
+    accountNickname: profile.nickname,
+    outputDir: path.join(runtimeRoot(), 'output'),
+    profileDir: profile.profileDir
+  }, { runId, onProgress: sendUpdate });
+  activeTask = task;
+  setImmediate(async () => {
+    try {
+      await task.runSend(leads, { retryKeys });
+    } catch (error) {
+      console.error(`[${runId}] 私信任务失败:`, error);
+    } finally {
+      if (activeTask === task) activeTask = null;
+    }
+  });
+  return { runId };
 });
 
 ipcMain.handle('accounts:list', () => accountManager?.list() || []);
@@ -98,9 +156,14 @@ ipcMain.handle('accounts:prepare', async (_event, options = {}) => {
     return await preparation;
   } catch (error) {
     if (mainWindow && !mainWindow.isDestroyed()) {
+      const status = error.code === 'ABORTED'
+        ? 'cancelled'
+        : error.code === 'BROWSER_CLOSED'
+          ? 'browser_closed'
+          : 'failed';
       mainWindow.webContents.send('account:update', {
         profileId: options.profileId || null,
-        status: error.code === 'ABORTED' ? 'cancelled' : 'failed',
+        status,
         message: error.message,
         errorCode: error.code || 'ACCOUNT_PREPARATION_FAILED'
       });
